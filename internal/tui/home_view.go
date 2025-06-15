@@ -88,7 +88,10 @@ func (m *HomeView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedFolder > 0 {
 					m.selectedFolder--
 					m.SelectFolder(m.selectedFolder)
-					m.selectedEmail = 0
+					if len(m.threads) > 0 {
+						m.selectedEmail = 0
+						m.loadThreadEmails(m.threads[m.selectedThreadInt].ID)
+					}
 				}
 			case EmailListPanel:
 				if m.selectedThreadInt > 0 {
@@ -109,7 +112,10 @@ func (m *HomeView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedFolder < len(m.folders)-1 {
 					m.selectedFolder++
 					m.SelectFolder(m.selectedFolder)
-					m.selectedEmail = 0
+					if len(m.threads) > 0 {
+						m.selectedEmail = 0
+						m.loadThreadEmails(m.threads[m.selectedThreadInt].ID)
+					}
 				}
 			case EmailListPanel:
 				if m.selectedThreadInt < len(m.threads)-1 {
@@ -146,9 +152,9 @@ func (m *HomeView) View() string {
 
 	header := ""
 	if m.currentAccount != nil {
-		header = fmt.Sprintf("📧 CAGI - %s (%s)", m.currentAccount.Name, m.currentAccount.Email)
+		header = fmt.Sprintf("📧 CLMAIL - %s (%s)", m.currentAccount.Name, m.currentAccount.Email)
 	} else {
-		header = "📧 CAGI - No Account Selected"
+		header = "📧 CLMAIL - No Account Selected"
 	}
 
 	headerView := headerStyle.Width(m.width).Render(header)

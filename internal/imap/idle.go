@@ -6,15 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/wlynxg/chardet"
-	"golang.org/x/text/encoding"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/encoding/ianaindex"
-	"golang.org/x/text/transform"
 	"io"
 	"log"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,23 +17,23 @@ import (
 	"github.com/rexxDigital/clmail/internal/db"
 )
 
-type ImapClient interface {
+type IdleClient interface {
 	GetFolders() []string
 	Idle(folder string) error
 	StopIdle() error
 	Close() error
 }
 
-type imapClient struct {
+type idleClient struct {
 	client       *imapclient.Client
 	idleCtx      context.Context
 	idleCancel   context.CancelFunc
 	currIdleCmd  *imapclient.IdleCommand
 	idleMutex    sync.Mutex
 	isIdle       bool
-	accountId    int64
+	accountID    int64
 	currFolder   string
-	currFolderId int64
+	currFolderID int64
 	dbClient     *db.Client
 	account      db.Account
 	password     string
@@ -49,9 +43,9 @@ type imapClient struct {
 	bodyFetchCancel context.CancelFunc
 }
 
-func NewImapClient(account db.Account, password string, dbClient *db.Client) (ImapClient, error) {
-	clientInstance := &imapClient{
-		accountId:      account.ID,
+func NewIdleClient(account db.Account, password string, dbClient *db.Client) (IdleClient, error) {
+	clientInstance := &idleClient{
+		accountID:      account.ID,
 		dbClient:       dbClient,
 		account:        account,
 		password:       password,
@@ -82,16 +76,16 @@ func NewImapClient(account db.Account, password string, dbClient *db.Client) (Im
 
 	client, err := imapclient.DialTLS(fmt.Sprintf("%v:%v", account.ImapServer, account.ImapPort), &options)
 	if err != nil {
-		return nil, fmt.Errorf("[IMAP::NewImapClient] failed to dial: %w", err)
+		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to dial: %w", err)
 	}
 
 	if err = client.Login(account.Email, password).Wait(); err != nil {
-		return nil, fmt.Errorf("[IMAP::NewImapClient] failed to login: %w", err)
+		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to login: %w", err)
 	}
 
 	hasIdleCap := client.Caps().Has(imap.CapIdle)
 	if !hasIdleCap {
-		return nil, fmt.Errorf("[IMAP::NewImapClient] server does not support idle")
+		return nil, fmt.Errorf("[IMAP::NewIdleClient] server does not support idle")
 	}
 
 	clientInstance.client = client
@@ -104,8 +98,8 @@ func NewImapClient(account db.Account, password string, dbClient *db.Client) (Im
 }
 
 func TestLoginAndGetFolders(account db.Account, password string, dbClient *db.Client) ([]string, error) {
-	clientInstance := &imapClient{
-		accountId:      account.ID,
+	clientInstance := &idleClient{
+		accountID:      account.ID,
 		dbClient:       dbClient,
 		account:        account,
 		password:       password,
@@ -113,11 +107,11 @@ func TestLoginAndGetFolders(account db.Account, password string, dbClient *db.Cl
 	}
 	client, err := imapclient.DialTLS(fmt.Sprintf("%v:%v", account.ImapServer, account.ImapPort), nil)
 	if err != nil {
-		return nil, fmt.Errorf("[IMAP::NewImapClient] failed to dial: %w", err)
+		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to dial: %w", err)
 	}
 
 	if err = client.Login(account.Email, password).Wait(); err != nil {
-		return nil, fmt.Errorf("[IMAP::NewImapClient] failed to login: %w", err)
+		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to login: %w", err)
 	}
 
 	clientInstance.client = client
@@ -131,7 +125,7 @@ func TestLoginAndGetFolders(account db.Account, password string, dbClient *db.Cl
 }
 
 // GetFolders returns all folders without the \Noselect flag.
-func (c *imapClient) GetFolders() []string {
+func (c *idleClient) GetFolders() []string {
 	data, err := c.client.List("", "*", nil).Collect()
 	if err != nil {
 		log.Printf("[IMAP::GetFolders] Failed to get folders: %v", err)
@@ -153,7 +147,7 @@ func (c *imapClient) GetFolders() []string {
 }
 
 // Idle just starts an idle on the INBOX folder as this is the most important one IMO
-func (c *imapClient) Idle(folder string) error {
+func (c *idleClient) Idle(folder string) error {
 	if c.isIdle {
 		return fmt.Errorf("[IMAP::Idle] already idle")
 	}
@@ -163,10 +157,13 @@ func (c *imapClient) Idle(folder string) error {
 		return fmt.Errorf("[IMAP::Idle] failed to select folder: %w", err)
 	}
 
-	folderID, err := c.getFolderID(folder)
+	folderID, err := getFolderID(folder, c.accountID, c.dbClient)
+	if err != nil {
+		return fmt.Errorf("[IMAP::Idle] failed to get folder ID: %w", err)
+	}
 
 	c.currFolder = folder
-	c.currFolderId = folderID
+	c.currFolderID = folderID
 
 	err = c.fetchMessageHeaders()
 	if err != nil {
@@ -182,12 +179,12 @@ func (c *imapClient) Idle(folder string) error {
 }
 
 // TODO: fix this for gracefull shutdown
-func (c *imapClient) StopIdle() error {
+func (c *idleClient) StopIdle() error {
 	return nil
 }
 
 // handles our idle command by restarting every 20 minutes and retrying on err.
-func (c *imapClient) runIdle() {
+func (c *idleClient) runIdle() {
 	defer func() {
 		c.isIdle = false
 	}()
@@ -232,7 +229,7 @@ func (c *imapClient) runIdle() {
 
 // fetchMessageHeaders has to close idle since it is a blocking command
 // and then restart our idle, so we keep track of it inside our struct.
-func (c *imapClient) fetchMessageHeaders() error {
+func (c *idleClient) fetchMessageHeaders() error {
 	c.idleMutex.Lock()
 	defer c.idleMutex.Unlock()
 
@@ -266,7 +263,7 @@ func (c *imapClient) fetchMessageHeaders() error {
 	uidSet := imap.UIDSet{}
 
 	// only get new messages, so we don't refetch large amounts of mails that we already track.
-	highestUID, err := c.getHighestUIDInFolder(c.currFolderId)
+	highestUID, err := getHighestUIDInFolder(c.currFolderID, c.dbClient)
 	if err != nil || highestUID == 0 {
 		uidSet.AddRange(1, 0)
 	} else {
@@ -297,63 +294,13 @@ func (c *imapClient) fetchMessageHeaders() error {
 
 	// Process each message
 	for _, msg := range messages {
-		c.processBodyStructure(msg)
+		processBodyStructure(msg, c.currFolderID, c.accountID, c.dbClient)
 	}
 
 	return nil
 }
 
-func (c *imapClient) processBodyStructure(msg *imapclient.FetchMessageBuffer) {
-	if msg.Envelope.MessageID != "" {
-		_, err := c.dbClient.GetEmailByMessageID(context.Background(), msg.Envelope.MessageID)
-		if err == nil {
-			return
-		}
-	}
-
-	// comma separated cc and bcc for db strings
-	cscc := c.buildAddressListString(msg.Envelope.Cc)
-	csbcc := c.buildAddressListString(msg.Envelope.Bcc)
-
-	if len(msg.Envelope.From) < 1 || len(msg.Envelope.To) < 1 {
-		return
-	}
-
-	threadID, err := c.threadMail(msg.Envelope)
-	if err != nil {
-		log.Printf("[IMAP::processBodyStructure] Failed to thread mail: %v", err)
-		return
-	}
-
-	_, err = c.dbClient.CreateEmail(context.Background(), db.CreateEmailParams{
-		Uid:          int64(msg.UID),
-		ThreadID:     threadID,
-		AccountID:    c.accountId,
-		FolderID:     c.currFolderId,
-		MessageID:    msg.Envelope.MessageID,
-		FromAddress:  msg.Envelope.From[0].Addr(),
-		FromName:     sql.NullString{String: msg.Envelope.From[0].Name, Valid: msg.Envelope.From[0].Name != ""},
-		ToAddresses:  msg.Envelope.To[0].Addr(),
-		CcAddresses:  sql.NullString{String: cscc, Valid: cscc != ""},
-		BccAddresses: sql.NullString{String: csbcc, Valid: csbcc != ""},
-		Subject:      msg.Envelope.Subject,
-		BodyText:     sql.NullString{},
-		BodyHtml:     sql.NullString{},
-		ReceivedDate: msg.Envelope.Date,
-		IsRead:       slices.Contains(msg.Flags, "\\Seen"),
-		IsStarred:    slices.Contains(msg.Flags, "\\Flagged"),
-		IsDraft:      slices.Contains(msg.Flags, "\\Draft"),
-	})
-
-	if err != nil {
-		log.Printf("[IMAP::processBodyStructure] Failed to create email: %v", err)
-		return
-	}
-
-	return
-}
-
-func (c *imapClient) startFetch() {
+func (c *idleClient) startFetch() {
 	for {
 		select {
 		case <-c.bodyFetchCtx.Done():
@@ -372,7 +319,7 @@ func (c *imapClient) startFetch() {
 }
 
 // bodyFetchTicker fetches email bodies every second
-func (c *imapClient) bodyFetchTicker() {
+func (c *idleClient) bodyFetchTicker() {
 	ticker := time.NewTicker(20 * time.Second) // check every second
 	defer ticker.Stop()
 
@@ -387,11 +334,11 @@ func (c *imapClient) bodyFetchTicker() {
 }
 
 // queueEmailsForBodyFetching finds emails without bodies and queues them
-func (c *imapClient) queueEmailsForBodyFetching() {
-	// Get emails without bodies, ordered by newest first
+func (c *idleClient) queueEmailsForBodyFetching() {
 	emails, err := c.dbClient.GetEmailsWithoutBodies(context.Background(), db.GetEmailsWithoutBodiesParams{
-		AccountID: c.accountId,
-		Limit:     50, // Process 50 at a time
+		AccountID: c.accountID,
+		FolderID:  c.currFolderID,
+		Limit:     50,
 	})
 	if err != nil {
 		log.Printf("[IMAP::queueEmailsForBodyFetching] Failed to get emails without bodies: %v", err)
@@ -401,9 +348,7 @@ func (c *imapClient) queueEmailsForBodyFetching() {
 	for _, email := range emails {
 		select {
 		case c.bodyFetchQueue <- email.ID:
-			// Queued successfully
 		default:
-			// Queue is full, skip for now
 			log.Printf("[IMAP::queueEmailsForBodyFetching] Body fetch queue is full, skipping email %d", email.ID)
 			return
 		}
@@ -411,7 +356,7 @@ func (c *imapClient) queueEmailsForBodyFetching() {
 }
 
 // fetchEmailBody creates a new client, since fetching body content takes a long time. We want the idle command to still be able to fetch new mails in the meantime.
-func (c *imapClient) fetchEmailBody(emailID int64) error {
+func (c *idleClient) fetchEmailBody(emailID int64) error {
 	log.Printf("[IMAP::fetchEmailBody] Starting body fetch for email ID: %d", emailID)
 
 	client, err := imapclient.DialTLS(fmt.Sprintf("%v:%v", c.account.ImapServer, c.account.ImapPort), nil)
@@ -436,7 +381,10 @@ func (c *imapClient) fetchEmailBody(emailID int64) error {
 		log.Printf("[IMAP::fetchEmailBody] Cleanup completed")
 	}()
 
-	email, err := c.dbClient.GetEmail(context.Background(), emailID)
+	email, err := c.dbClient.GetEmailByFolderAndUID(context.Background(), db.GetEmailByFolderAndUIDParams{
+		Uid:      emailID,
+		FolderID: c.currFolderID,
+	})
 	if err != nil {
 		return fmt.Errorf("[IMAP::fetchEmailBody] failed to get email: %w", err)
 	}
@@ -448,12 +396,10 @@ func (c *imapClient) fetchEmailBody(emailID int64) error {
 		return nil
 	}
 
-	folder, err := c.dbClient.GetFolder(context.Background(), email.FolderID)
+	folder, err := c.dbClient.GetFolder(context.Background(), c.currFolderID)
 	if err != nil {
 		return fmt.Errorf("[IMAP::fetchEmailBody] failed to get folder: %w", err)
 	}
-
-	log.Printf("[IMAP::fetchEmailBody] Selecting folder: %s", folder.Name)
 
 	_, err = client.Select(folder.Name, nil).Wait()
 	if err != nil {
@@ -507,6 +453,7 @@ func (c *imapClient) fetchEmailBody(emailID int64) error {
 			continue
 		}
 
+		// this does not handle different content types, which ends up looking goofy. The commented code will handle this, ill fix it later
 		content, err := io.ReadAll(bodySection.Literal)
 		//
 		//// create our mail reader
@@ -557,7 +504,7 @@ func (c *imapClient) fetchEmailBody(emailID int64) error {
 		log.Printf("[IMAP::fetchEmailBody] Saving to db")
 
 		_, err = c.dbClient.UpdateEmailBody(context.Background(), db.UpdateEmailBodyParams{
-			ID: emailID,
+			ID: email.ID,
 			BodyText: sql.NullString{
 				String: (string)(content),
 				Valid:  content != nil,
@@ -572,136 +519,8 @@ func (c *imapClient) fetchEmailBody(emailID int64) error {
 	return nil
 }
 
-// i wrote this decodeCharset function when we had issues with charsets at Sendswift
-
-func decodeCharset(charset string, input io.Reader) (io.Reader, error) {
-	if charset == "" {
-		detector := chardet.NewUniversalDetector(0)
-
-		buffer := make([]byte, 4096)
-		var totalData []byte
-
-		for {
-			n, readErr := input.Read(buffer)
-
-			if n > 0 {
-				totalData = append(totalData, buffer[:n]...)
-				detector.Feed(buffer[:n])
-			}
-
-			if readErr == io.EOF {
-				break
-			}
-
-			if readErr != nil {
-				return nil, fmt.Errorf("error reading input: %v", readErr)
-			}
-		}
-
-		result := detector.GetResult()
-
-		charset = result.Encoding // use detected charset
-	}
-
-	var decoder *encoding.Decoder
-
-	switch strings.ToLower(charset) {
-	case "windows-1252":
-		decoder = charmap.Windows1252.NewDecoder()
-	case "iso-8859-1":
-		decoder = charmap.ISO8859_1.NewDecoder()
-	case "iso-8859-15":
-		decoder = charmap.ISO8859_15.NewDecoder()
-	case "windows-1250":
-		decoder = charmap.Windows1250.NewDecoder()
-	case "utf-8", "us-ascii":
-		return input, nil // already UTF-8 compatible
-	default:
-		// try to find charset using IANA registry as fallback
-		enc, err := ianaindex.IANA.Encoding(charset)
-		if err != nil || enc == nil {
-			return input, nil // Fallback to default (assume UTF-8)
-		}
-		decoder = enc.NewDecoder()
-	}
-
-	// convert to UTF-8
-	return transform.NewReader(input, decoder), nil
-}
-
-func (c *imapClient) getFolderID(folder string) (int64, error) {
-	dbFolder, err := c.dbClient.GetFolderByName(context.Background(), db.GetFolderByNameParams{
-		Name:      folder,
-		AccountID: c.accountId,
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	return dbFolder.ID, nil
-}
-
-// threadMail attempts to thread to an existing thread or creates a new one in case it is new
-func (c *imapClient) threadMail(envelope *imap.Envelope) (int64, error) {
-	// check if we have a reply-to value, if we do, link to thread
-	if len(envelope.InReplyTo) != 0 {
-		email, err := c.dbClient.GetEmailByMessageID(context.Background(), envelope.InReplyTo[0])
-		if err == nil {
-			_, err = c.dbClient.UpdateThread(context.Background(), db.UpdateThreadParams{
-				Subject:           envelope.Subject,
-				LatestMessageDate: envelope.Date,
-				ID:                email.ThreadID,
-			})
-
-			if err != nil {
-				return 0, err
-			}
-
-			return email.ThreadID, nil
-		}
-	}
-
-	// TODO: should really add reference checking as well here, and maybe even subject checking as a backup
-
-	newThread, err := c.dbClient.CreateThread(context.Background(), db.CreateThreadParams{
-		AccountID:         c.accountId,
-		Subject:           envelope.Subject,
-		MessageCount:      1,
-		LatestMessageDate: envelope.Date,
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	return newThread.ID, nil
-}
-
-func (c *imapClient) buildAddressListString(addresses []imap.Address) string {
-	if len(addresses) == 0 {
-		return ""
-	}
-
-	var addrs []string
-	for _, addr := range addresses {
-		addrs = append(addrs, addr.Addr())
-	}
-
-	return strings.Join(addrs, ",")
-}
-
-// getHighestUIDInFolder returns the highest UID we have stored for this folder
-func (c *imapClient) getHighestUIDInFolder(folderID int64) (uint32, error) {
-	uid, err := c.dbClient.GetHighestUIDInFolder(context.Background(), folderID)
-	if err != nil {
-		// No emails in folder yet
-		return 0, nil
-	}
-
-	return uint32(uid), nil
-}
-
 // Close logs out our user and closes the connection
-func (c *imapClient) Close() error {
+func (c *idleClient) Close() error {
 	err := c.client.Logout().Wait()
 	if err != nil {
 		return fmt.Errorf("[IMAP::Close] failed to logout: %w", err)

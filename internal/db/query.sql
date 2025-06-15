@@ -157,6 +157,12 @@ SELECT *
 FROM emails
 WHERE id = ? LIMIT 1;
 
+-- name: GetEmailByFolderAndUID :one
+SELECT *
+FROM emails
+WHERE uid = ? AND folder_id = ?
+LIMIT 1;
+
 -- name: GetEmailByMessageID :one
 SELECT thread_id,
        message_id
@@ -173,6 +179,7 @@ ORDER BY received_date DESC;
 SELECT id, uid, folder_id, subject, from_address, received_date
 FROM emails
 WHERE account_id = ?
+  AND folder_id = ?
   AND (body_text IS NULL OR body_text = '')
 ORDER BY received_date DESC LIMIT ?;
 

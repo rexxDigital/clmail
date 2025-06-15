@@ -437,6 +437,44 @@ func (q *Queries) GetEmail(ctx context.Context, id int64) (Email, error) {
 	return i, err
 }
 
+const getEmailByFolderAndUID = `-- name: GetEmailByFolderAndUID :one
+SELECT id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
+FROM emails
+WHERE uid = ? AND folder_id = ?
+LIMIT 1
+`
+
+type GetEmailByFolderAndUIDParams struct {
+	Uid      int64
+	FolderID int64
+}
+
+func (q *Queries) GetEmailByFolderAndUID(ctx context.Context, arg GetEmailByFolderAndUIDParams) (Email, error) {
+	row := q.db.QueryRowContext(ctx, getEmailByFolderAndUID, arg.Uid, arg.FolderID)
+	var i Email
+	err := row.Scan(
+		&i.ID,
+		&i.Uid,
+		&i.ThreadID,
+		&i.AccountID,
+		&i.FolderID,
+		&i.MessageID,
+		&i.FromAddress,
+		&i.FromName,
+		&i.ToAddresses,
+		&i.CcAddresses,
+		&i.BccAddresses,
+		&i.Subject,
+		&i.BodyText,
+		&i.BodyHtml,
+		&i.ReceivedDate,
+		&i.IsRead,
+		&i.IsStarred,
+		&i.IsDraft,
+	)
+	return i, err
+}
+
 const getEmailByMessageID = `-- name: GetEmailByMessageID :one
 SELECT thread_id,
        message_id
@@ -485,12 +523,14 @@ const getEmailsWithoutBodies = `-- name: GetEmailsWithoutBodies :many
 SELECT id, uid, folder_id, subject, from_address, received_date
 FROM emails
 WHERE account_id = ?
+  AND folder_id = ?
   AND (body_text IS NULL OR body_text = '')
 ORDER BY received_date DESC LIMIT ?
 `
 
 type GetEmailsWithoutBodiesParams struct {
 	AccountID int64
+	FolderID  int64
 	Limit     int64
 }
 
@@ -504,7 +544,7 @@ type GetEmailsWithoutBodiesRow struct {
 }
 
 func (q *Queries) GetEmailsWithoutBodies(ctx context.Context, arg GetEmailsWithoutBodiesParams) ([]GetEmailsWithoutBodiesRow, error) {
-	rows, err := q.db.QueryContext(ctx, getEmailsWithoutBodies, arg.AccountID, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, getEmailsWithoutBodies, arg.AccountID, arg.FolderID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

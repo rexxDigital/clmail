@@ -17,6 +17,8 @@
 ## Sync
 
 - [ ] Background sync of non-inbox folders
+- [ ] Sync priority
+- [ ] Manual sync
 - [ ] Account switching
 
 ## JMAP integration

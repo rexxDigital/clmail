@@ -5,6 +5,7 @@ import (
 	"github.com/rexxDigital/clmail/internal/accounts"
 	"github.com/rexxDigital/clmail/internal/db"
 	"github.com/rexxDigital/clmail/internal/imap"
+	"github.com/rexxDigital/clmail/internal/services/sync"
 	"github.com/rexxDigital/clmail/internal/tui"
 	"log"
 	_ "modernc.org/sqlite"
@@ -20,9 +21,12 @@ func main() {
 	}
 	defer dbClient.Close()
 
-	password, _ := accounts.GetPassword("kagi@copland.se")
+	password, err := accounts.GetPassword("kagi@copland.se")
+	if err != nil {
+		log.Fatalf("Failed to get password: %v", err)
+	}
 
-	imapcl, err := imap.NewImapClient(db.Account{
+	imapcl, err := imap.NewIdleClient(db.Account{
 		Email:      "kagi",
 		ImapServer: "mail.copland.se",
 		ImapPort:   993,
@@ -34,6 +38,17 @@ func main() {
 	defer imapcl.Close()
 
 	go imapcl.Idle("INBOX")
+
+	synccl := sync.NewSyncService(db.Account{
+		Email:      "kagi",
+		ImapServer: "mail.copland.se",
+		ImapPort:   993,
+		ID:         1,
+	}, password, dbClient)
+
+	synccl.Start()
+
+	go synccl.InitSync()
 
 	if _, err := tea.NewProgram(tui.NewBaseModel(dbClient), tea.WithAltScreen()).Run(); err != nil {
 		os.Exit(1)
