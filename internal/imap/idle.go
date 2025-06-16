@@ -79,7 +79,7 @@ func NewIdleClient(account db.Account, password string, dbClient *db.Client) (Id
 		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to dial: %w", err)
 	}
 
-	if err = client.Login(account.Email, password).Wait(); err != nil {
+	if err = client.Login(account.ImapUsername, password).Wait(); err != nil {
 		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to login: %w", err)
 	}
 
@@ -347,9 +347,8 @@ func (c *idleClient) queueEmailsForBodyFetching() {
 
 	for _, email := range emails {
 		select {
-		case c.bodyFetchQueue <- email.ID:
+		case c.bodyFetchQueue <- email.Uid:
 		default:
-			log.Printf("[IMAP::queueEmailsForBodyFetching] Body fetch queue is full, skipping email %d", email.ID)
 			return
 		}
 	}
@@ -357,8 +356,6 @@ func (c *idleClient) queueEmailsForBodyFetching() {
 
 // fetchEmailBody creates a new client, since fetching body content takes a long time. We want the idle command to still be able to fetch new mails in the meantime.
 func (c *idleClient) fetchEmailBody(emailID int64) error {
-	log.Printf("[IMAP::fetchEmailBody] Starting body fetch for email ID: %d", emailID)
-
 	client, err := imapclient.DialTLS(fmt.Sprintf("%v:%v", c.account.ImapServer, c.account.ImapPort), nil)
 	if err != nil {
 		return fmt.Errorf("[IMAP::fetchEmailBody] failed to dial: %w", err)
@@ -370,7 +367,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 
 	// defer logging out and closing our connection!!
 	defer func() {
-		log.Printf("[IMAP::fetchEmailBody] Starting cleanup")
 		if client != nil {
 			logoutCmd := client.Logout()
 			if logoutCmd != nil {
@@ -378,7 +374,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 			}
 			client.Close()
 		}
-		log.Printf("[IMAP::fetchEmailBody] Cleanup completed")
 	}()
 
 	email, err := c.dbClient.GetEmailByFolderAndUID(context.Background(), db.GetEmailByFolderAndUIDParams{
@@ -388,8 +383,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 	if err != nil {
 		return fmt.Errorf("[IMAP::fetchEmailBody] failed to get email: %w", err)
 	}
-
-	log.Printf("[IMAP::fetchEmailBody] Email UID: %d, Subject: %s", email.Uid, email.Subject)
 
 	if email.BodyText.Valid {
 		log.Printf("[IMAP::fetchEmailBody] VALID??")
@@ -418,8 +411,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 	uidSet := imap.UIDSet{}
 	uidSet.AddNum(imap.UID(email.Uid))
 
-	log.Printf("[IMAP::fetchEmailBody] Fetching UID: %d", email.Uid)
-
 	fetchCmd := client.Fetch(uidSet, fetchOptions)
 	defer fetchCmd.Close()
 
@@ -428,8 +419,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 		if msg == nil {
 			break
 		}
-
-		log.Printf("[IMAP::fetchEmailBody] Processing message")
 
 		// create variable for storing the body
 		var bodySection imapclient.FetchItemDataBodySection
@@ -501,7 +490,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 		//	}
 		//}
 		//
-		log.Printf("[IMAP::fetchEmailBody] Saving to db")
 
 		_, err = c.dbClient.UpdateEmailBody(context.Background(), db.UpdateEmailBodyParams{
 			ID: email.ID,

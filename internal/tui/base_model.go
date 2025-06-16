@@ -4,10 +4,13 @@ import (
 	"context"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rexxDigital/clmail/internal/db"
+	"github.com/rexxDigital/clmail/types"
 )
 
 type SwitchViewMsg struct {
 	ViewName string
+	Account  *db.Account
+	Mail     *types.Mail
 }
 
 type BaseModel struct {
@@ -61,6 +64,13 @@ func (m *BaseModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.currentView.Init()
 		case "setup":
 			m.currentView = NewSetupView(m.width, m.height, m.dbClient)
+			return m, m.currentView.Init()
+		case "send":
+			mail := &types.Mail{}
+			if msg.Mail != nil {
+				mail = msg.Mail
+			}
+			m.currentView = NewSendView(m.width, m.height, msg.Account, *mail, m.dbClient)
 			return m, m.currentView.Init()
 		}
 	case accountExists:

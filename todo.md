@@ -2,6 +2,7 @@
 
 ## IMAP integration
 
+- [x] Save sent to imap
 - [ ] Full reconnection support
 - [ ] Graceful shutdown
 - [ ] Thread by references, not only in-reply-to header
@@ -16,7 +17,7 @@
 
 ## Sync
 
-- [ ] Background sync of non-inbox folders
+- [x] Background sync of non-inbox folders
 - [ ] Sync priority
 - [ ] Manual sync
 - [ ] Account switching

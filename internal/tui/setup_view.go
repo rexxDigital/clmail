@@ -377,17 +377,6 @@ func (m *SetupView) getFormData() *db.CreateAccountParams {
 	}
 }
 
-func parsePort(port string, defaultPort int64) int64 {
-	if port == "" {
-		return defaultPort
-	}
-	p, err := strconv.ParseInt(port, 10, 64)
-	if err != nil {
-		return defaultPort
-	}
-	return p
-}
-
 func (m *SetupView) updateInputs(msg tea.Msg) tea.Cmd {
 	cmds := make([]tea.Cmd, len(m.inputs))
 
@@ -410,4 +399,15 @@ func (m *SetupView) createAccount() tea.Cmd {
 
 		return accountCreatedMsg{success: true, err: nil}
 	}
+}
+
+func parsePort(port string, defaultPort int64) int64 {
+	if port == "" {
+		return defaultPort
+	}
+	p, err := strconv.ParseInt(port, 10, 64)
+	if err != nil {
+		return defaultPort
+	}
+	return p
 }

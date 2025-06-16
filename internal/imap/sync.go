@@ -9,10 +9,13 @@ import (
 	"github.com/rexxDigital/clmail/internal/db"
 	"io"
 	"log"
+	"strings"
+	"time"
 )
 
 type SyncClient interface {
 	SyncFolder(folder string) error
+	SaveSent(mail string, date time.Time) error
 	Close() error
 }
 
@@ -30,7 +33,7 @@ func NewSyncClient(account db.Account, password string, dbClient *db.Client) (Sy
 		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to dial: %w", err)
 	}
 
-	if err = client.Login(account.Email, password).Wait(); err != nil {
+	if err = client.Login(account.ImapUsername, password).Wait(); err != nil {
 		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to login: %w", err)
 	}
 
@@ -69,6 +72,43 @@ func (c *syncClient) SyncFolder(folder string) error {
 	if err = c.fetchBodiesForFolder(folder); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (c *syncClient) SaveSent(mail string, date time.Time) error {
+	folders, err := c.dbClient.ListFolders(context.Background(), c.account.ID)
+	if err != nil {
+		return err
+	}
+
+	sentFolder := ""
+	for _, folder := range folders {
+		if strings.Contains(strings.ToLower(folder.Name), strings.ToLower("sent")) {
+			sentFolder = folder.Name
+			break
+		}
+	}
+
+	appendCmd := c.client.Append(sentFolder, int64(len(mail)), &imap.AppendOptions{
+		Flags: []imap.Flag{imap.FlagSeen},
+		Time:  date,
+	})
+
+	_, err = appendCmd.Write([]byte(mail))
+	if err != nil {
+		return err
+	}
+
+	err = appendCmd.Close()
+	if err != nil {
+		return err
+	}
+
+	_, err = appendCmd.Wait()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

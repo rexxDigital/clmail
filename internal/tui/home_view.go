@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rexxDigital/clmail/internal/db"
+	"github.com/rexxDigital/clmail/types"
 	"log"
 	"maps"
 	"slices"
@@ -130,8 +131,10 @@ func (m *HomeView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedEmail++
 				}
 			}
-		case "ctrl+a":
-
+		case "r":
+			return m, func() tea.Msg {
+				return SwitchViewMsg{ViewName: "send", Account: m.currentAccount, Mail: m.GetSelectedMail()}
+			}
 		}
 	}
 
@@ -189,8 +192,6 @@ func (m *HomeView) View() string {
 
 	// We need - 4 for out beautiful top panel!
 	contentHeight := m.height - 4
-
-	appStyle := lipgloss.NewStyle()
 
 	folderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -308,6 +309,8 @@ func (m *HomeView) View() string {
 		contentView,
 	)
 
+	appStyle := lipgloss.NewStyle()
+
 	return appStyle.Render(lipgloss.JoinVertical(
 		lipgloss.Left,
 		headerView,
@@ -402,6 +405,22 @@ func (m *HomeView) SelectFolder(folderID int) {
 
 func (m *HomeView) SelectAccount(account *db.Account) {
 	m.currentAccount = account
+}
+
+func (m *HomeView) GetSelectedMail() *types.Mail {
+	mail := m.selectedThread[m.selectedEmail]
+	return &types.Mail{
+		MessageID: mail.MessageID,
+		// TODO: REFERENCES ARE IMPORTANT!
+		References: "",
+		To:         mail.FromAddress,
+		From:       m.currentAccount.Email,
+		Subject:    mail.Subject,
+		Body:       mail.BodyText.String,
+		CC:         nil,
+		Date:       mail.ReceivedDate,
+		InReplyTo:  mail.MessageID,
+	}
 }
 
 // helper

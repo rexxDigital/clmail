@@ -27,10 +27,11 @@ func main() {
 	}
 
 	imapcl, err := imap.NewIdleClient(db.Account{
-		Email:      "kagi",
-		ImapServer: "mail.copland.se",
-		ImapPort:   993,
-		ID:         1,
+		Email:        "kagi@copland.se",
+		ImapUsername: "kagi",
+		ImapServer:   "mail.copland.se",
+		ImapPort:     993,
+		ID:           1,
 	}, password, dbClient)
 	if err != nil {
 		log.Fatalf("Failed to init imap client: %v", err)
@@ -40,10 +41,11 @@ func main() {
 	go imapcl.Idle("INBOX")
 
 	synccl := sync.NewSyncService(db.Account{
-		Email:      "kagi",
-		ImapServer: "mail.copland.se",
-		ImapPort:   993,
-		ID:         1,
+		Email:        "kagi@copland.se",
+		ImapUsername: "kagi",
+		ImapServer:   "mail.copland.se",
+		ImapPort:     993,
+		ID:           1,
 	}, password, dbClient)
 
 	synccl.Start()
