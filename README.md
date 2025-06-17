@@ -7,7 +7,7 @@
 - **IMAP/SMTP Support**
 - **Email Threading**
 - **Real-time Sync**
-- **Secure Storage** using keyring
+- **Secure Password Storage** using keyring
 
 ## Installation
 
