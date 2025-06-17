@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/emersion/go-message"
+	"github.com/emersion/go-message/mail"
 	"io"
 	"log"
 	"slices"
@@ -400,12 +402,7 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 	}
 
 	fetchOptions := &imap.FetchOptions{
-		BodyStructure: &imap.FetchItemBodyStructure{},
-		BodySection: []*imap.FetchItemBodySection{
-			{
-				Specifier: imap.PartSpecifierText,
-			},
-		},
+		BodySection: []*imap.FetchItemBodySection{{}},
 	}
 
 	uidSet := imap.UIDSet{}
@@ -414,86 +411,121 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 	fetchCmd := client.Fetch(uidSet, fetchOptions)
 	defer fetchCmd.Close()
 
+	// loop through each mail message
 	for {
 		msg := fetchCmd.Next()
+
+		/*
+			if the message is nil we don't have any more messages to fetch
+			if we don't have anything more to fetch we break
+		*/
 		if msg == nil {
 			break
 		}
 
-		// create variable for storing the body
 		var bodySection imapclient.FetchItemDataBodySection
-		found := false
 
+		// loop through the mail data to find each item we are looking for
+		ok := false
 		for {
+			// get next data point
 			item := msg.Next()
+
+			// check if we have read all the data points we want
 			if item == nil {
 				break
 			}
-			if bs, ok := item.(imapclient.FetchItemDataBodySection); ok {
-				bodySection = bs
-				found = true
+
+			// go through each section and set data
+			bodySection, ok = item.(imapclient.FetchItemDataBodySection)
+			switch item := item.(type) {
+			case imapclient.FetchItemDataBodySection:
+				bodySection = item
+				ok = true
+			default:
+				log.Println("[IMAP::fetchEmailBody] Unknown data type")
+			}
+			if ok {
 				break
 			}
 		}
-		if !found {
-			log.Printf("[IMAP::fetchEmailBody] failed to read body section")
+		if !ok {
+			log.Println("[IMAP::fetchEmailBody] Could not fetch all data from message")
 			continue
 		}
 
-		// this does not handle different content types, which ends up looking goofy. The commented code will handle this, ill fix it later
-		content, err := io.ReadAll(bodySection.Literal)
-		//
-		//// create our mail reader
-		//mailReader, err := mail.CreateReader(bodySection.Literal)
-		//if err != nil {
-		//	log.Printf("[IMAP::fetchEmailBody] failed to create mail reader: %v", err)
-		//	continue
-		//}
-		//
-		//// TODO: add support for references :)
-		//// header := mailReader.Header -> mailReferences, err := header.MsgIDList("References")
-		//
-		//// time to get the mail body data!
-		//var bodyPlain []byte
-		//
-		//for {
-		//	part, err := mailReader.NextPart()
-		//	if err == io.EOF {
-		//		break
-		//	} else if err != nil {
-		//		break
-		//	}
-		//
-		//	switch h := part.Header.(type) {
-		//	case *mail.InlineHeader:
-		//		ct, params, _ := h.ContentType()
-		//
-		//		charset := params["charset"]
-		//
-		//		decodedBody, err := decodeCharset(charset, part.Body)
-		//		if err != nil {
-		//			log.Printf("[Bialetti::getMails] Could not decode charset with error: %v", err.Error())
-		//		}
-		//
-		//		switch ct {
-		//		case "text/plain":
-		//			bodyPlain, _ = io.ReadAll(decodedBody)
-		//			// wen html support!?
-		//			//case "text/html":
-		//			//	bodyHTML, _ = io.ReadAll(decodedBody)
-		//		}
-		//	case *mail.AttachmentHeader:
-		//		// TODO: Add support for attachments
-		//		_, _ = h.Filename()
-		//	}
-		//}
-		//
+		// create mail reader
+		mailReader, err := mail.CreateReader(bodySection.Literal)
+		if err != nil {
+			log.Printf("[IMAP::fetchEmailBody] Could not create mail reader: %v", err)
+			continue
+		}
 
-		_, err = c.dbClient.UpdateEmailBody(context.Background(), db.UpdateEmailBodyParams{
+		// get References from mail header
+		header := mailReader.Header
+		/*
+		   try to get references from msg-id if available
+		*/
+		mailReferences, err := header.MsgIDList("References")
+		if mailReferences == nil {
+			mailReferences = make([]string, 0)
+		}
+
+		// get mail body data
+		var _, bodyPlain []byte
+
+		for {
+			part, err := mailReader.NextPart()
+			if err == io.EOF {
+				break
+			} else if message.IsUnknownCharset(err) {
+				log.Printf("[IMAP::fetchEmailBody] Could not read mail part trying to decode charset with error: %v", err.Error())
+			} else if err != nil {
+				log.Printf("[IMAP::fetchEmailBody] Could not read mail part with error: %v", err.Error())
+				break
+			}
+
+			switch h := part.Header.(type) {
+			case *mail.InlineHeader:
+				ct, params, _ := h.ContentType()
+
+				charset := params["charset"]
+
+				decodedBody, err := decodeCharset(charset, part.Body)
+				if err != nil {
+					log.Printf("[IMAP::fetchEmailBody] Could not decode charset with error: %v", err.Error())
+				}
+
+				switch ct {
+				case "text/plain":
+					bodyPlain, _ = io.ReadAll(decodedBody)
+				case "text/html":
+					_, _ = io.ReadAll(decodedBody)
+				}
+			case *mail.AttachmentHeader:
+				// TODO: Add support for attachments
+				_, _ = h.Filename()
+			}
+		}
+
+		refs := ""
+		for i, ref := range mailReferences {
+			if i != len(mailReferences)-1 {
+				refs += ref + ","
+			} else {
+				refs += ref
+			}
+		}
+
+		_, err = c.dbClient.UpdateEmailBodyAndReferences(context.Background(), db.UpdateEmailBodyAndReferencesParams{
 			ID: email.ID,
 			BodyText: sql.NullString{
-				String: (string)(content),
-				Valid:  content != nil,
+				String: (string)(bodyPlain),
+				Valid:  bodyPlain != nil,
+			},
+			ReferenceID: sql.NullString{
+				String: refs,
+				Valid:  refs != "",
 			},
 		})
 

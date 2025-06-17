@@ -53,6 +53,7 @@ type Email struct {
 	ToAddresses  string
 	CcAddresses  sql.NullString
 	BccAddresses sql.NullString
+	ReferenceID  sql.NullString
 	Subject      string
 	BodyText     sql.NullString
 	BodyHtml     sql.NullString

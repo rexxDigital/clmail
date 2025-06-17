@@ -133,7 +133,7 @@ VALUES (?, ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?,
-        ?, ?, ?) RETURNING id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
+        ?, ?, ?) RETURNING id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reference_id, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
 `
 
 type CreateEmailParams struct {
@@ -189,6 +189,7 @@ func (q *Queries) CreateEmail(ctx context.Context, arg CreateEmailParams) (Email
 		&i.ToAddresses,
 		&i.CcAddresses,
 		&i.BccAddresses,
+		&i.ReferenceID,
 		&i.Subject,
 		&i.BodyText,
 		&i.BodyHtml,
@@ -406,7 +407,7 @@ func (q *Queries) GetDefaultAccount(ctx context.Context) (Account, error) {
 }
 
 const getEmail = `-- name: GetEmail :one
-SELECT id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
+SELECT id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reference_id, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
 FROM emails
 WHERE id = ? LIMIT 1
 `
@@ -426,6 +427,7 @@ func (q *Queries) GetEmail(ctx context.Context, id int64) (Email, error) {
 		&i.ToAddresses,
 		&i.CcAddresses,
 		&i.BccAddresses,
+		&i.ReferenceID,
 		&i.Subject,
 		&i.BodyText,
 		&i.BodyHtml,
@@ -438,7 +440,7 @@ func (q *Queries) GetEmail(ctx context.Context, id int64) (Email, error) {
 }
 
 const getEmailByFolderAndUID = `-- name: GetEmailByFolderAndUID :one
-SELECT id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
+SELECT id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reference_id, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
 FROM emails
 WHERE uid = ? AND folder_id = ?
 LIMIT 1
@@ -464,6 +466,7 @@ func (q *Queries) GetEmailByFolderAndUID(ctx context.Context, arg GetEmailByFold
 		&i.ToAddresses,
 		&i.CcAddresses,
 		&i.BccAddresses,
+		&i.ReferenceID,
 		&i.Subject,
 		&i.BodyText,
 		&i.BodyHtml,
@@ -816,7 +819,7 @@ func (q *Queries) ListAttachmentsByEmail(ctx context.Context, emailID int64) ([]
 }
 
 const listEmailsByThread = `-- name: ListEmailsByThread :many
-SELECT id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
+SELECT id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reference_id, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
 FROM emails
 WHERE thread_id = ?
 ORDER BY received_date DESC
@@ -843,6 +846,7 @@ func (q *Queries) ListEmailsByThread(ctx context.Context, threadID int64) ([]Ema
 			&i.ToAddresses,
 			&i.CcAddresses,
 			&i.BccAddresses,
+			&i.ReferenceID,
 			&i.Subject,
 			&i.BodyText,
 			&i.BodyHtml,
@@ -933,7 +937,7 @@ func (q *Queries) MoveEmail(ctx context.Context, arg MoveEmailParams) error {
 }
 
 const searchEmails = `-- name: SearchEmails :many
-SELECT e.id, e.uid, e.thread_id, e.account_id, e.folder_id, e.message_id, e.from_address, e.from_name, e.to_addresses, e.cc_addresses, e.bcc_addresses, e.subject, e.body_text, e.body_html, e.received_date, e.is_read, e.is_starred, e.is_draft
+SELECT e.id, e.uid, e.thread_id, e.account_id, e.folder_id, e.message_id, e.from_address, e.from_name, e.to_addresses, e.cc_addresses, e.bcc_addresses, e.reference_id, e.subject, e.body_text, e.body_html, e.received_date, e.is_read, e.is_starred, e.is_draft
 FROM emails e
          JOIN threads t ON e.thread_id = t.id
 WHERE (e.subject LIKE '%' || ? || '%'
@@ -984,6 +988,7 @@ func (q *Queries) SearchEmails(ctx context.Context, arg SearchEmailsParams) ([]E
 			&i.ToAddresses,
 			&i.CcAddresses,
 			&i.BccAddresses,
+			&i.ReferenceID,
 			&i.Subject,
 			&i.BodyText,
 			&i.BodyHtml,
@@ -1151,7 +1156,7 @@ SET folder_id  = ?,
     is_starred = ?,
     is_draft   = ?,
     body_text  = ?
-WHERE id = ? RETURNING id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
+WHERE id = ? RETURNING id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reference_id, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
 `
 
 type UpdateEmailParams struct {
@@ -1185,6 +1190,7 @@ func (q *Queries) UpdateEmail(ctx context.Context, arg UpdateEmailParams) (Email
 		&i.ToAddresses,
 		&i.CcAddresses,
 		&i.BccAddresses,
+		&i.ReferenceID,
 		&i.Subject,
 		&i.BodyText,
 		&i.BodyHtml,
@@ -1196,19 +1202,20 @@ func (q *Queries) UpdateEmail(ctx context.Context, arg UpdateEmailParams) (Email
 	return i, err
 }
 
-const updateEmailBody = `-- name: UpdateEmailBody :one
+const updateEmailBodyAndReferences = `-- name: UpdateEmailBodyAndReferences :one
 UPDATE emails
-SET body_text  = ?
-WHERE id = ? RETURNING id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
+SET body_text  = ? AND reference_id = ?
+WHERE id = ? RETURNING id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reference_id, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
 `
 
-type UpdateEmailBodyParams struct {
-	BodyText sql.NullString
-	ID       int64
+type UpdateEmailBodyAndReferencesParams struct {
+	BodyText    sql.NullString
+	ReferenceID sql.NullString
+	ID          int64
 }
 
-func (q *Queries) UpdateEmailBody(ctx context.Context, arg UpdateEmailBodyParams) (Email, error) {
-	row := q.db.QueryRowContext(ctx, updateEmailBody, arg.BodyText, arg.ID)
+func (q *Queries) UpdateEmailBodyAndReferences(ctx context.Context, arg UpdateEmailBodyAndReferencesParams) (Email, error) {
+	row := q.db.QueryRowContext(ctx, updateEmailBodyAndReferences, arg.BodyText, arg.ReferenceID, arg.ID)
 	var i Email
 	err := row.Scan(
 		&i.ID,
@@ -1222,6 +1229,7 @@ func (q *Queries) UpdateEmailBody(ctx context.Context, arg UpdateEmailBodyParams
 		&i.ToAddresses,
 		&i.CcAddresses,
 		&i.BccAddresses,
+		&i.ReferenceID,
 		&i.Subject,
 		&i.BodyText,
 		&i.BodyHtml,

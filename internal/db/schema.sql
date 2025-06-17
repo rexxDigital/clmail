@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS emails
     to_addresses  TEXT      NOT NULL,
     cc_addresses  TEXT,
     bcc_addresses TEXT,
+    reference_id  TEXT,
     subject       TEXT      NOT NULL,
     body_text     TEXT,
     body_html     TEXT,

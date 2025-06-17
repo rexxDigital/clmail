@@ -175,7 +175,7 @@ func decodeCharset(charset string, input io.Reader) (io.Reader, error) {
 		// try to find charset using IANA registry as fallback
 		enc, err := ianaindex.IANA.Encoding(charset)
 		if err != nil || enc == nil {
-			return input, nil // Fallback to default (assume UTF-8)
+			return input, nil // fallback to default (assume UTF-8)
 		}
 		decoder = enc.NewDecoder()
 	}

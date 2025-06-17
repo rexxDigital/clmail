@@ -204,9 +204,9 @@ SET folder_id  = ?,
     body_text  = ?
 WHERE id = ? RETURNING *;
 
--- name: UpdateEmailBody :one
+-- name: UpdateEmailBodyAndReferences :one
 UPDATE emails
-SET body_text  = ?
+SET body_text  = ? AND reference_id = ?
 WHERE id = ? RETURNING *;
 
 -- name: DeleteEmail :exec
