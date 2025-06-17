@@ -68,12 +68,13 @@ func SendMail(mail types.Mail, account *db.Account, password string, dbClient *d
 	if err != nil {
 		return err
 	}
-	//defer syncClient.Close()
 
 	err = syncClient.SaveSent(message.String(), mail.Date)
 	if err != nil {
 		return err
 	}
+
+	syncClient.Close()
 
 	return nil
 }

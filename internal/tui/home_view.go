@@ -517,9 +517,8 @@ func (m *HomeView) SelectAccount(account *db.Account) {
 func (m *HomeView) GetSelectedMail() *types.Mail {
 	mail := m.selectedThread[m.selectedEmail]
 	return &types.Mail{
-		MessageID: mail.MessageID,
-		// TODO: REFERENCES ARE IMPORTANT!
-		References: "",
+		MessageID:  mail.MessageID,
+		References: mail.ReferenceID.String,
 		To:         mail.FromAddress,
 		From:       m.currentAccount.Email,
 		Subject:    mail.Subject,

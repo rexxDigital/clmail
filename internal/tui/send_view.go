@@ -368,13 +368,17 @@ func (m *SendView) createReferenceList() string {
 
 	if m.Mail.References != "" {
 		existing := strings.Split(m.Mail.References, ",")
-		for _, ref := range existing {
-			references = references + "<" + ref + "> "
+		for i, ref := range existing {
+			if i != len(existing)-1 {
+				references = references + "<" + ref + "> "
+			} else {
+				references = references + "<" + ref + ">"
+			}
 		}
 	}
 
 	if m.Mail.MessageID != "" {
-		references = references + m.Mail.MessageID + " "
+		references = references + m.Mail.MessageID
 	}
 
 	return references
