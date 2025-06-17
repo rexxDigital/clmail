@@ -1204,7 +1204,7 @@ func (q *Queries) UpdateEmail(ctx context.Context, arg UpdateEmailParams) (Email
 
 const updateEmailBodyAndReferences = `-- name: UpdateEmailBodyAndReferences :one
 UPDATE emails
-SET body_text  = ? AND reference_id = ?
+SET body_text = ?, reference_id = ?
 WHERE id = ? RETURNING id, uid, thread_id, account_id, folder_id, message_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reference_id, subject, body_text, body_html, received_date, is_read, is_starred, is_draft
 `
 

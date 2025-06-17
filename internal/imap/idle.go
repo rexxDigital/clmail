@@ -443,7 +443,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 				bodySection = item
 				ok = true
 			default:
-				log.Println("[IMAP::fetchEmailBody] Unknown data type")
 			}
 			if ok {
 				break

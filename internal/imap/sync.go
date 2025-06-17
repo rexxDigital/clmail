@@ -32,11 +32,11 @@ type syncClient struct {
 func NewSyncClient(account db.Account, password string, dbClient *db.Client) (SyncClient, error) {
 	client, err := imapclient.DialTLS(fmt.Sprintf("%v:%v", account.ImapServer, account.ImapPort), nil)
 	if err != nil {
-		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to dial: %w", err)
+		return nil, fmt.Errorf("[SyncClient::NewIdleClient] failed to dial: %w", err)
 	}
 
 	if err = client.Login(account.ImapUsername, password).Wait(); err != nil {
-		return nil, fmt.Errorf("[IMAP::NewIdleClient] failed to login: %w", err)
+		return nil, fmt.Errorf("[SyncClient::NewIdleClient] failed to login: %w", err)
 	}
 
 	return &syncClient{
@@ -64,7 +64,7 @@ func (c *syncClient) SyncFolder(folder string) error {
 
 	_, err = c.client.Select(folder, nil).Wait()
 	if err != nil {
-		return fmt.Errorf("[IMAP::SyncFolder] failed to select folder: %w", err)
+		return fmt.Errorf("[SyncClient::SyncFolder] failed to select folder: %w", err)
 	}
 
 	if err = c.fetchMessageHeaders(folder, dbFolder.ID); err != nil {
@@ -116,7 +116,7 @@ func (c *syncClient) SaveSent(mail string, date time.Time) error {
 
 func (c *syncClient) Close() error {
 	if err := c.client.Logout().Wait(); err != nil {
-		return fmt.Errorf("[IMAP::Close] failed to logout: %w", err)
+		return fmt.Errorf("[SyncClient::Close] failed to logout: %w", err)
 	}
 	return c.client.Close()
 }
@@ -130,7 +130,7 @@ func (c *syncClient) fetchMessageHeaders(folder string, folderID int64) error {
 	}).Wait()
 	if err != nil {
 
-		return fmt.Errorf("[IMAP::fetchMessages] Failed to get status: %v", err)
+		return fmt.Errorf("[SyncClient::fetchMessages] Failed to get status: %v", err)
 	}
 
 	if *status.NumMessages == 0 {
@@ -178,7 +178,7 @@ func (c *syncClient) fetchBodiesForFolder(folder string) error {
 	})
 	if err != nil {
 
-		return fmt.Errorf("[IMAP::queueEmailsForBodyFetching] Failed to get emails without bodies: %v", err)
+		return fmt.Errorf("[SyncClient::queueEmailsForBodyFetching] Failed to get emails without bodies: %v", err)
 	}
 
 	_, err = c.client.Select(folder, nil).Wait()
@@ -254,21 +254,20 @@ func (c *syncClient) fetchEmailBody(emailID int64) error {
 				bodySection = item
 				ok = true
 			default:
-				log.Println("[IMAP::fetchEmailBody] Unknown data type")
 			}
 			if ok {
 				break
 			}
 		}
 		if !ok {
-			log.Println("[IMAP::fetchEmailBody] Could not fetch all data from message")
+			log.Println("[SyncClient::fetchEmailBody] Could not fetch all data from message")
 			continue
 		}
 
 		// create mail reader
 		mailReader, err := mail.CreateReader(bodySection.Literal)
 		if err != nil {
-			log.Printf("[IMAP::fetchEmailBody] Could not create mail reader: %v", err)
+			log.Printf("[SyncClient::fetchEmailBody] Could not create mail reader: %v", err)
 			continue
 		}
 
@@ -290,9 +289,9 @@ func (c *syncClient) fetchEmailBody(emailID int64) error {
 			if err == io.EOF {
 				break
 			} else if message.IsUnknownCharset(err) {
-				log.Printf("[IMAP::fetchEmailBody] Could not read mail part trying to decode charset with error: %v", err.Error())
+				log.Printf("[SyncClient::fetchEmailBody] Could not read mail part trying to decode charset with error: %v", err.Error())
 			} else if err != nil {
-				log.Printf("[IMAP::fetchEmailBody] Could not read mail part with error: %v", err.Error())
+				log.Printf("[SyncClient::fetchEmailBody] Could not read mail part with error: %v", err.Error())
 				break
 			}
 
@@ -304,7 +303,7 @@ func (c *syncClient) fetchEmailBody(emailID int64) error {
 
 				decodedBody, err := decodeCharset(charset, part.Body)
 				if err != nil {
-					log.Printf("[IMAP::fetchEmailBody] Could not decode charset with error: %v", err.Error())
+					log.Printf("[SyncClient::fetchEmailBody] Could not decode charset with error: %v", err.Error())
 				}
 
 				switch ct {
@@ -341,7 +340,7 @@ func (c *syncClient) fetchEmailBody(emailID int64) error {
 		})
 
 		if err != nil {
-			return fmt.Errorf("[IMAP::fetchEmailBody] failed to update email: %w", err)
+			return fmt.Errorf("[SyncClient::fetchEmailBody] failed to update email: %w", err)
 		}
 	}
 

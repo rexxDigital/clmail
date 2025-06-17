@@ -52,6 +52,8 @@ func threadMail(envelope *imap.Envelope, accountID int64, dbClient *db.Client) (
 	}
 
 	// TODO: should really add reference checking as well here, and maybe even subject checking as a backup
+	// not threading by reference can have issues, right now threading doesnt work all too well on already existing mail accounts
+	// this will get fixed in the coming days (today is 17/06/25)
 
 	newThread, err := dbClient.CreateThread(context.Background(), db.CreateThreadParams{
 		AccountID:         accountID,

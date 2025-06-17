@@ -206,7 +206,7 @@ WHERE id = ? RETURNING *;
 
 -- name: UpdateEmailBodyAndReferences :one
 UPDATE emails
-SET body_text  = ? AND reference_id = ?
+SET body_text = ?, reference_id = ?
 WHERE id = ? RETURNING *;
 
 -- name: DeleteEmail :exec
