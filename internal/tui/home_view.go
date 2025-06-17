@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"fmt"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rexxDigital/clmail/internal/db"
@@ -16,6 +17,9 @@ import (
 )
 
 type HomeView struct {
+	dbClient          *db.Client
+	accounts          []db.Account
+	currentAccount    *db.Account
 	threads           []db.GetThreadsInFolderRow
 	selectedThread    []db.Email
 	selectedFolder    int
@@ -26,9 +30,8 @@ type HomeView struct {
 	width             int
 	height            int
 	loading           bool
-	dbClient          *db.Client
-	accounts          []db.Account
-	currentAccount    *db.Account
+	threadsViewport   viewport.Model
+	contentViewport   viewport.Model
 }
 
 const (
@@ -49,6 +52,9 @@ func NewHomeView(width, height int, dbClient *db.Client) *HomeView {
 		folders:           make(map[int]db.Folder),
 	}
 
+	homeView.threadsViewport = viewport.New(0, 0)
+	homeView.contentViewport = viewport.New(0, 0)
+
 	// load initial data from db
 	homeView.loadAccounts()
 	homeView.loadFolders()
@@ -61,6 +67,20 @@ func NewHomeView(width, height int, dbClient *db.Client) *HomeView {
 func (m *HomeView) HandleWindowSizeMsg(msg tea.WindowSizeMsg) {
 	m.width = msg.Width
 	m.height = msg.Height
+
+	// update viewport sizes
+	folderWidth := min(25, m.width/5)
+	emailListWidth := min(60, m.width/3)
+	contentWidth := m.width - folderWidth - emailListWidth - 6
+
+	// calculate available height and viewport height
+	availableHeight := m.height - 4
+	viewportHeight := availableHeight - 2
+
+	m.threadsViewport.Width = emailListWidth - 4
+	m.threadsViewport.Height = viewportHeight
+	m.contentViewport.Width = contentWidth - 4
+	m.contentViewport.Height = viewportHeight
 }
 
 func (m *HomeView) Init() tea.Cmd {
@@ -68,6 +88,9 @@ func (m *HomeView) Init() tea.Cmd {
 }
 
 func (m *HomeView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
+
 	switch msg := message.(type) {
 	case tickMsg:
 		return m, m.tickDatabase()
@@ -101,10 +124,18 @@ func (m *HomeView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectedEmail = 0
 						m.loadThreadEmails(m.threads[m.selectedThreadInt].ID)
 					}
+					m.updateThreadsViewport()
+				} else {
+					m.threadsViewport, cmd = m.threadsViewport.Update(msg)
+					cmds = append(cmds, cmd)
 				}
 			case ContentPanel:
 				if m.selectedEmail > 0 {
 					m.selectedEmail--
+					m.updateContentViewport()
+				} else {
+					m.contentViewport, cmd = m.contentViewport.Update(msg)
+					cmds = append(cmds, cmd)
 				}
 			}
 		case "down", "j":
@@ -125,20 +156,134 @@ func (m *HomeView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectedEmail = 0
 						m.loadThreadEmails(m.threads[m.selectedThreadInt].ID)
 					}
+					m.updateThreadsViewport()
+				} else {
+					m.threadsViewport, cmd = m.threadsViewport.Update(msg)
+					cmds = append(cmds, cmd)
 				}
 			case ContentPanel:
 				if m.selectedEmail < len(m.selectedThread)-1 {
 					m.selectedEmail++
+					m.updateContentViewport()
+				} else {
+					m.contentViewport, cmd = m.contentViewport.Update(msg)
+					cmds = append(cmds, cmd)
 				}
 			}
 		case "r":
 			return m, func() tea.Msg {
 				return SwitchViewMsg{ViewName: "send", Account: m.currentAccount, Mail: m.GetSelectedMail()}
 			}
+		default:
+			// pass other keys to active viewport for scrolling
+			switch m.activePanel {
+			case EmailListPanel:
+				m.threadsViewport, cmd = m.threadsViewport.Update(msg)
+				cmds = append(cmds, cmd)
+			case ContentPanel:
+				m.contentViewport, cmd = m.contentViewport.Update(msg)
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
-	return m, nil
+	return m, tea.Batch(cmds...)
+}
+
+func (m *HomeView) updateThreadsViewport() {
+	emailListContent := m.buildThreadsContent()
+	m.threadsViewport.SetContent(emailListContent)
+}
+
+func (m *HomeView) updateContentViewport() {
+	contentData := m.buildContentData()
+	m.contentViewport.SetContent(contentData)
+}
+
+func (m *HomeView) buildThreadsContent() string {
+	emailListContent := strings.Builder{}
+	emailListContent.WriteString(lipgloss.NewStyle().Bold(true).Render("Threads") + "\n\n")
+
+	for i, thread := range m.threads {
+		unreadCount := 0
+		folderCount := 0
+		unread, _ := thread.FolderUnreadCount.Value()
+		folderCount += int(thread.FolderCount)
+		unreadCount += convertToInt(unread)
+
+		sender := thread.LatestFolderSender
+
+		emailItem := fmt.Sprintf("%v %-20s\n%s\n%s",
+			thread.LatestFolderSenderName,
+			"<"+truncateString(sender, 20)+">",
+			truncateString(thread.Subject, m.threadsViewport.Width-6),
+			thread.LatestMessageDate.Format("2006-01-02 15:04"))
+
+		if i == m.selectedThreadInt && m.activePanel == EmailListPanel {
+			emailListContent.WriteString(lipgloss.NewStyle().Foreground(highlightColor).Bold(true).BorderBottom(true).BorderStyle(lipgloss.MarkdownBorder()).Width(m.threadsViewport.Width).Render("> "+emailItem) + "\n\n")
+		} else if i == m.selectedThreadInt {
+			emailListContent.WriteString(lipgloss.NewStyle().Foreground(specialColor).Bold(true).BorderBottom(true).BorderStyle(lipgloss.MarkdownBorder()).Width(m.threadsViewport.Width).Render("> "+emailItem) + "\n\n")
+		} else {
+			emailListContent.WriteString(lipgloss.NewStyle().Foreground(subtleColor).Bold(true).BorderBottom(true).BorderStyle(lipgloss.MarkdownBorder()).Width(m.threadsViewport.Width).Render(emailItem) + "\n\n")
+		}
+	}
+
+	return emailListContent.String()
+}
+
+func (m *HomeView) buildContentData() string {
+	if m.selectedThread == nil || len(m.selectedThread) == 0 {
+		return "No email selected"
+	}
+
+	email := m.selectedThread[m.selectedEmail]
+
+	var bodyText string
+	if !email.BodyText.Valid {
+		bodyText = "No body text available"
+	} else {
+		bodyText = email.BodyText.String
+	}
+
+	headerLines := []string{
+		fmt.Sprintf("From: %s", email.FromAddress),
+		fmt.Sprintf("To: %s", email.ToAddresses),
+		fmt.Sprintf("Date: %s", email.ReceivedDate.Format("2006-01-02 15:04")),
+	}
+
+	header := strings.Join(headerLines, "\n")
+
+	content := strings.Builder{}
+
+	subjectText := email.Subject
+	content.WriteString(lipgloss.NewStyle().
+		Bold(true).
+		Foreground(highlightColor).
+		Render(subjectText))
+	content.WriteString("\n\n")
+
+	content.WriteString(lipgloss.NewStyle().
+		Foreground(subtleColor).
+		Render(header))
+	content.WriteString("\n\n")
+
+	content.WriteString(strings.Repeat("─", min(m.contentViewport.Width-6, 50)))
+	content.WriteString("\n\n")
+
+	content.WriteString(bodyText)
+
+	if len(m.selectedThread) > 1 {
+		content.WriteString("\n\n")
+		content.WriteString(strings.Repeat("─", min(m.contentViewport.Width-6, 50)))
+		navText := fmt.Sprintf("\nEmail %d of %d in thread (use j/k to navigate)",
+			m.selectedEmail+1, len(m.selectedThread))
+		content.WriteString(lipgloss.NewStyle().
+			Foreground(subtleColor).
+			Italic(true).
+			Render(navText))
+	}
+
+	return content.String()
 }
 
 func (m *HomeView) View() string {
@@ -182,21 +327,37 @@ func (m *HomeView) View() string {
 			folderCount += int(thread.FolderCount)
 			unreadCount += convertToInt(unread)
 		}
-		// TODO: USE GetEmailsStats FROM DB
-		status = fmt.Sprintf("📊 %d threads • %d unread • h/j/k/l: navigate • r: reply • q: quit", folderCount, unreadCount)
+		// TODO: change to threads instead of mails, and fix reading/unread in mail
+		status = fmt.Sprintf("📊 %d threads • %d unread • h/l: panels • j/k: navigate • r: reply • q: quit",
+			folderCount, unreadCount)
 	} else {
 		status = "ℹ️ No accounts configured. Press Esc to go back and add an account."
 	}
 
 	statusView := statusStyle.Width(m.width).Render(status)
 
-	// We need - 4 for out beautiful top panel!
-	contentHeight := m.height - 4
+	// we need - 4 for our beautiful top panel!
+	availableHeight := m.height - 4
+
+	viewportHeight := availableHeight - 2
+
+	// update viewport sizes if needed
+	if m.threadsViewport.Width != emailListWidth-4 || m.threadsViewport.Height != viewportHeight {
+		m.threadsViewport.Width = emailListWidth - 4
+		m.threadsViewport.Height = viewportHeight
+		m.updateThreadsViewport()
+	}
+
+	if m.contentViewport.Width != contentWidth-4 || m.contentViewport.Height != viewportHeight {
+		m.contentViewport.Width = contentWidth - 4
+		m.contentViewport.Height = viewportHeight
+		m.updateContentViewport()
+	}
 
 	folderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(subtleColor).
-		Height(contentHeight).
+		Height(availableHeight).
 		Width(folderWidth)
 
 	if m.activePanel == FolderPanel {
@@ -220,87 +381,31 @@ func (m *HomeView) View() string {
 
 	foldersView := folderStyle.Render(folderContent.String())
 
+	// email list panel with viewport
 	emailListStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(subtleColor).
-		Height(contentHeight).
+		Height(availableHeight).
 		Width(emailListWidth)
 
 	if m.activePanel == EmailListPanel {
 		emailListStyle = emailListStyle.BorderForeground(highlightColor).Border(lipgloss.RoundedBorder())
 	}
 
-	emailListContent := strings.Builder{}
-	emailListContent.WriteString(lipgloss.NewStyle().Bold(true).Render("Threads") + "\n\n")
-
-	for i, thread := range m.threads {
-		unreadCount := 0
-		folderCount := 0
-		unread, _ := thread.FolderUnreadCount.Value()
-		folderCount += int(thread.FolderCount)
-		unreadCount += convertToInt(unread)
-
-		sender := thread.LatestFolderSender
-
-		emailItem := fmt.Sprintf("%v %-20s\n%s\n%s",
-			thread.LatestFolderSenderName,
-			"<"+truncateString(sender, 20)+">",
-			truncateString(thread.Subject, emailListWidth-6),
-			thread.LatestMessageDate.Format("2006-01-02 15:04"))
-
-		if i == m.selectedThreadInt && m.activePanel == EmailListPanel {
-			emailListContent.WriteString(lipgloss.NewStyle().Foreground(highlightColor).Bold(true).BorderBottom(true).BorderStyle(lipgloss.MarkdownBorder()).Width(emailListWidth-4).Render("> "+emailItem) + "\n\n")
-		} else if i == m.selectedThreadInt {
-			emailListContent.WriteString(lipgloss.NewStyle().Foreground(specialColor).Bold(true).BorderBottom(true).BorderStyle(lipgloss.MarkdownBorder()).Width(emailListWidth-4).Render("> "+emailItem) + "\n\n")
-		} else {
-			emailListContent.WriteString(lipgloss.NewStyle().Foreground(subtleColor).Bold(true).BorderBottom(true).BorderStyle(lipgloss.MarkdownBorder()).Width(emailListWidth-4).Render(emailItem) + "\n\n")
-		}
-	}
-
-	emailsView := emailListStyle.Render(emailListContent.String())
+	emailsView := emailListStyle.Render(m.threadsViewport.View())
 
 	// all the beautiful mail content!
 	contentStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(subtleColor).
-		Height(contentHeight).
+		Height(availableHeight).
 		Width(contentWidth)
 
 	if m.activePanel == ContentPanel {
 		contentStyle = contentStyle.BorderForeground(highlightColor).Border(lipgloss.RoundedBorder())
 	}
 
-	threadContent := strings.Builder{}
-	if m.selectedThread != nil && len(m.selectedThread) > 0 {
-		for i, email := range m.selectedThread {
-			var bodyText string
-			if !email.BodyText.Valid {
-				bodyText = "No body text available"
-			} else {
-				bodyText = email.BodyText.String
-			}
-
-			contentData := lipgloss.NewStyle().BorderBottom(true).BorderStyle(lipgloss.MarkdownBorder()).Width(contentWidth - 4).Render(fmt.Sprintf(
-				"From: %s\nTo: %s\nDate: %s\n\n\n%s",
-				email.FromAddress,
-				email.ToAddresses,
-				email.ReceivedDate.Format("2006-01-02 15:04"),
-				bodyText,
-			))
-
-			if m.selectedEmail == i && m.activePanel == ContentPanel {
-				threadContent.WriteString(lipgloss.NewStyle().Bold(true).Foreground(highlightColor).Render(email.Subject) + "\n\n" + contentData + "\n\n")
-			} else if m.selectedEmail == i {
-				threadContent.WriteString(lipgloss.NewStyle().Bold(true).Foreground(specialColor).Render(email.Subject) + "\n\n" + contentData + "\n\n")
-			} else {
-				threadContent.WriteString(lipgloss.NewStyle().Bold(true).Render(email.Subject) + "\n\n" + contentData + "\n\n")
-			}
-		}
-	} else {
-		threadContent.WriteString("No email selected")
-	}
-
-	contentView := contentStyle.Render(threadContent.String())
+	contentView := contentStyle.Render(m.contentViewport.View())
 
 	mainView := lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -384,6 +489,7 @@ func (m *HomeView) loadThreads() {
 
 	m.threads = threads
 	m.loading = false
+	m.updateThreadsViewport()
 }
 
 func (m *HomeView) loadThreadEmails(threadID int64) {
@@ -393,6 +499,7 @@ func (m *HomeView) loadThreadEmails(threadID int64) {
 		return
 	}
 	m.selectedThread = emails
+	m.updateContentViewport()
 }
 
 func (m *HomeView) SelectFolder(folderID int) {

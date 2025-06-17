@@ -147,7 +147,7 @@ func (m *SendView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg {
 				return SwitchViewMsg{ViewName: "home"}
 			}
-		case "s":
+		case "ctrl+s":
 			if !m.isSending {
 				m.isSending = true
 				return m, m.sendMail()

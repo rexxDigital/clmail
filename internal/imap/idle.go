@@ -361,7 +361,7 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 		return fmt.Errorf("[IMAP::fetchEmailBody] failed to dial: %w", err)
 	}
 
-	if err = client.Login(c.account.Email, c.password).Wait(); err != nil {
+	if err = client.Login(c.account.ImapUsername, c.password).Wait(); err != nil {
 		return fmt.Errorf("[IMAP::fetchEmailBody] failed to login: %w", err)
 	}
 
@@ -430,8 +430,6 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 				break
 			}
 			if bs, ok := item.(imapclient.FetchItemDataBodySection); ok {
-				log.Printf("[IMAP::fetchEmailBody] Found body section: %s", bs.Section.Specifier)
-
 				bodySection = bs
 				found = true
 				break
