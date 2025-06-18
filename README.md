@@ -13,6 +13,7 @@
 
 ### Prerequisites
 - Go 1.24.3 or later
+- SQLite 3
 
 ### Build from Source
 ```bash
