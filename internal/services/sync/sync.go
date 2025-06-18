@@ -11,7 +11,7 @@ import (
 
 type Syncer interface {
 	Start()
-	Stop()
+	Close()
 	InitSync()
 	GetStatus() Status
 }
@@ -53,7 +53,7 @@ func (s *syncer) Start() {
 	go s.syncerScheduler()
 }
 
-func (s *syncer) Stop() {
+func (s *syncer) Close() {
 	if s.cancel != nil {
 		s.cancel()
 	}

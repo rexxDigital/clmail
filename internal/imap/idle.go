@@ -538,6 +538,21 @@ func (c *idleClient) fetchEmailBody(emailID int64) error {
 
 // Close logs out our user and closes the connection
 func (c *idleClient) Close() error {
+	if c.idleCancel != nil {
+		c.idleCancel()
+	}
+
+	if c.bodyFetchCancel != nil {
+		c.bodyFetchCancel()
+	}
+
+	c.idleMutex.Lock()
+	if c.currIdleCmd != nil {
+		c.currIdleCmd.Close()
+		c.currIdleCmd = nil
+	}
+	c.idleMutex.Unlock()
+
 	err := c.client.Logout().Wait()
 	if err != nil {
 		return fmt.Errorf("[IMAP::Close] failed to logout: %w", err)

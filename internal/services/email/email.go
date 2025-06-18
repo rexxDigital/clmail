@@ -96,6 +96,9 @@ func (es *emailService) Close() {
 				log.Printf("Failed to close idle client for account %d: %v", accountID, err)
 			}
 		}
+		if client.SyncClient != nil {
+			client.SyncClient.Close()
+		}
 	}
 
 	es.clients = make(map[int64]*EmailClient)
