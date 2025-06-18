@@ -34,6 +34,7 @@ type SendView struct {
 	bodyArea      textarea.Model
 	isSending     bool
 	selectedInput int
+	errorMsg      string
 
 	width  int
 	height int
@@ -44,7 +45,7 @@ type mailSendMsg struct {
 	err     error
 }
 
-func NewSendView(width, height int, account *db.Account, mail types.Mail, dbClient *db.Client) *SendView {
+func NewSendView(width, height int, account *db.Account, mail *types.Mail, dbClient *db.Client) *SendView {
 	subjectArea := textarea.New()
 	subjectArea.SetHeight(1)
 	subjectArea.CharLimit = 200
@@ -72,10 +73,14 @@ func NewSendView(width, height int, account *db.Account, mail types.Mail, dbClie
 	bodyArea.SetHeight(10)
 	bodyArea.ShowLineNumbers = false
 
+	if mail == nil {
+		mail = &types.Mail{}
+	}
+
 	if mail.InReplyTo != "" {
 		subjectArea.SetValue("Re: " + mail.Subject)
 		toArea.SetValue(mail.To)
-		bodyArea.SetValue(formatReply(mail))
+		bodyArea.SetValue(formatReply(*mail))
 	} else {
 		subjectArea.Placeholder = "Enter subject..."
 		toArea.Placeholder = "recipient@example.com"
@@ -85,7 +90,7 @@ func NewSendView(width, height int, account *db.Account, mail types.Mail, dbClie
 
 	sendView := &SendView{
 		account:       account,
-		Mail:          mail,
+		Mail:          *mail,
 		dbClient:      dbClient,
 		subjectArea:   subjectArea,
 		fromArea:      fromArea,
@@ -174,6 +179,8 @@ func (m *SendView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg {
 				return SwitchViewMsg{ViewName: "home"}
 			}
+		} else {
+			m.errorMsg = msg.err.Error()
 		}
 
 		return m, nil
@@ -299,6 +306,13 @@ func (m *SendView) View() string {
 	}
 	content.WriteString(bodyLabel + "\n" + bodyField + "\n")
 
+	var errorMsgBuilder strings.Builder
+
+	if m.errorMsg != "" {
+		errorMsg := fmt.Sprintf("%s\n\n", errorStyle.Render(m.errorMsg))
+		fmt.Fprintf(&errorMsgBuilder, "\n\n%s\n\n", errorMsg)
+	}
+
 	var helpText string
 	if m.isSending {
 		helpText = "Sending email..."
@@ -311,6 +325,7 @@ func (m *SendView) View() string {
 		lipgloss.Left,
 		headerView,
 		content.String(),
+		errorMsgBuilder.String(),
 		help,
 	)
 

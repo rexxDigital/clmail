@@ -64,7 +64,7 @@ func (m *BaseModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Mail != nil {
 				mail = msg.Mail
 			}
-			m.currentView = NewSendView(m.width, m.height, msg.Account, *mail, m.dbClient)
+			m.currentView = NewSendView(m.width, m.height, msg.Account, mail, m.dbClient)
 			return m, m.currentView.Init()
 		}
 	case accountExists:

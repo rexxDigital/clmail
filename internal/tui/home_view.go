@@ -172,6 +172,10 @@ func (m *HomeView) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, cmd)
 				}
 			}
+		case "s":
+			return m, func() tea.Msg {
+				return SwitchViewMsg{ViewName: "send", Account: m.currentAccount, Mail: nil}
+			}
 		case "r":
 			return m, func() tea.Msg {
 				return SwitchViewMsg{ViewName: "send", Account: m.currentAccount, Mail: m.GetSelectedMail()}
@@ -234,7 +238,7 @@ func (m *HomeView) View() string {
 			unreadCount += convertToInt(unread)
 		}
 		// TODO: change to threads instead of mails, and fix reading/unread in mail
-		status = fmt.Sprintf("📊 %d threads • %d unread • h/l: panels • j/k: navigate • r: reply • q: quit",
+		status = fmt.Sprintf("📊 %d threads • %d unread • h/l: panels • j/k: navigate • s: compose • r: reply • q: quit",
 			folderCount, unreadCount)
 	} else {
 		status = "ℹ️ No accounts configured. Press Esc to go back and add an account."
